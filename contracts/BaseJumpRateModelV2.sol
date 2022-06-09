@@ -77,6 +77,8 @@ abstract contract BaseJumpRateModelV2 is InterestRateModel {
      * @param reserves The amount of reserves in the market (currently unused)
      * @return The utilization rate as a mantissa between [0, BASE]
      */
+
+     //资金利用率：borrows / (cash + borrows - reserves)`
     function utilizationRate(uint cash, uint borrows, uint reserves) public pure returns (uint) {
         // Utilization rate is 0 when there are no borrows
         if (borrows == 0) {
@@ -93,14 +95,20 @@ abstract contract BaseJumpRateModelV2 is InterestRateModel {
      * @param reserves The amount of reserves in the market
      * @return The borrow rate percentage per block as a mantissa (scaled by BASE)
      */
+     //当前区块的借贷利率
     function getBorrowRateInternal(uint cash, uint borrows, uint reserves) internal view returns (uint) {
+        //获取资金利用率
         uint util = utilizationRate(cash, borrows, reserves);
-
+        //kink是否到达贷款存款利率曲线的转折点（二段式的转折点）
         if (util <= kink) {
+            //multiplierPerBlock系数  baseRatePerBlock基础利率也就是利用率为0时的y截距 
+            //uint256 private constant BASE = 1e18;
             return ((util * multiplierPerBlock) / BASE) + baseRatePerBlock;
+        //超过转折点
         } else {
             uint normalRate = ((kink * multiplierPerBlock) / BASE) + baseRatePerBlock;
             uint excessUtil = util - kink;
+            //jumpMultiplierPerBlock转折点后的系数
             return ((excessUtil * jumpMultiplierPerBlock) / BASE) + normalRate;
         }
     }
@@ -113,10 +121,16 @@ abstract contract BaseJumpRateModelV2 is InterestRateModel {
      * @param reserveFactorMantissa The current reserve factor for the market
      * @return The supply rate percentage per block as a mantissa (scaled by BASE)
      */
+
+     //存款利率
     function getSupplyRate(uint cash, uint borrows, uint reserves, uint reserveFactorMantissa) virtual override public view returns (uint) {
+        //1e18 - 当前市场储备因素
         uint oneMinusReserveFactor = BASE - reserveFactorMantissa;
+        //获得贷款利率
         uint borrowRate = getBorrowRateInternal(cash, borrows, reserves);
+        //根据市场因素调整贷款利率
         uint rateToPool = borrowRate * oneMinusReserveFactor / BASE;
+        //存款利率 = 资金利用率 * 贷款利率   utilizationRate资金利用率
         return utilizationRate(cash, borrows, reserves) * rateToPool / BASE;
     }
 

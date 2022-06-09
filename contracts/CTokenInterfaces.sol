@@ -28,9 +28,11 @@ contract CTokenStorage {
     uint8 public decimals;
 
     // Maximum borrow rate that can ever be applied (.0005% / block)
+    //每个区块中该token借款的最大利率
     uint internal constant borrowRateMaxMantissa = 0.0005e16;
 
     // Maximum fraction of interest that can be set aside for reserves
+    //常量 用于判断每个cToken的储备金比例不能超过此值
     uint internal constant reserveFactorMaxMantissa = 1e18;
 
     /**
@@ -51,19 +53,26 @@ contract CTokenStorage {
     /**
      * @notice Model which tells what the current interest rate should be
      */
+     //每个token不同的利率模型  所指向的实例不一样，进而利率模型也不一样
     InterestRateModel public interestRateModel;
 
     // Initial exchange rate used when minting the first CTokens (used when totalSupply = 0)
+    //初始汇率是0.02
+    //汇率 = token的总数 / cToken的总数
     uint internal initialExchangeRateMantissa;
 
     /**
      * @notice Fraction of interest currently set aside for reserves
      */
+     //每个cToken的储备金比例
+     //cDAI: 15%
+     //cUSDC: 7%
     uint public reserveFactorMantissa;
 
     /**
      * @notice Block number that interest was last accrued at
      */
+     //上次计算复利的区块编号
     uint public accrualBlockNumber;
 
     /**
@@ -74,22 +83,27 @@ contract CTokenStorage {
     /**
      * @notice Total amount of outstanding borrows of the underlying in this market
      */
+     //借出去的总额
     uint public totalBorrows;
 
     /**
      * @notice Total amount of reserves of the underlying held in this market
      */
+     //总的储备金
     uint public totalReserves;
 
     /**
      * @notice Total number of tokens in circulation
      */
+     //总的mint
     uint public totalSupply;
 
     // Official record of token balances for each account
+    //每个账户的代币余额  每个cToken都有一个accountTokens记录用户的此cToken的余额
     mapping (address => uint) internal accountTokens;
 
     // Approved token transfer amounts on behalf of others
+    //每个token授权给这个人多少数额
     mapping (address => mapping (address => uint)) internal transferAllowances;
 
     /**
@@ -97,12 +111,15 @@ contract CTokenStorage {
      * @member principal Total balance (with accrued interest), after applying the most recent balance-changing action
      * @member interestIndex Global borrowIndex as of the most recent balance-changing action
      */
+     //贷款信息
     struct BorrowSnapshot {
         uint principal;
+        //贷款指数   interestIndex = borrowIndex => indexB
         uint interestIndex;
     }
 
     // Mapping of account addresses to outstanding borrow balances
+    //每个用户的贷款
     mapping(address => BorrowSnapshot) internal accountBorrows;
 
     /**
