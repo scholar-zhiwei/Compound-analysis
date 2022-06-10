@@ -344,7 +344,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         if (!markets[cToken].isListed) {
             return uint(Error.MARKET_NOT_LISTED);
         }
-        //该用户的资产是否进入市场
+        //该用户的资产是否进入市场，未进入则添加
         if (!markets[cToken].accountMembership[borrower]) {
             // only cTokens may call borrowAllowed if borrower not in market
             require(msg.sender == cToken, "sender must be cToken");
@@ -372,7 +372,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             uint nextTotalBorrows = add_(totalBorrows, borrowAmount);
             require(nextTotalBorrows < borrowCap, "market borrow cap reached");
         }
-        //cToken的健康度
+        //cToken的健康度   ---判断该用户的抵押的资产加上之前的借款是否还可以借款
         //shortfall:若总抵押的资产大于借款 此值为0，反之值 = 借款 - 总抵押的资产  即：欠多少钱
         (Error err, , uint shortfall) = getHypotheticalAccountLiquidityInternal(borrower, CToken(cToken), 0, borrowAmount);
         if (err != Error.NO_ERROR) {
@@ -384,7 +384,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         }
 
         // Keep the flywheel moving
-        //借款可以产生自己的代币
+        //借款可以产生comp治理代币
         Exp memory borrowIndex = Exp({mantissa: CToken(cToken).borrowIndex()});
         updateCompBorrowIndex(cToken, borrowIndex);
         distributeBorrowerComp(cToken, borrower, borrowIndex);
@@ -487,15 +487,16 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         if (!markets[cTokenBorrowed].isListed || !markets[cTokenCollateral].isListed) {
             return uint(Error.MARKET_NOT_LISTED);
         }
-        //获取被清算人的借款金额
+        //获取被清算人的借款金额（复利）
         uint borrowBalance = CToken(cTokenBorrowed).borrowBalanceStored(borrower);
 
         /* allow accounts to be liquidated if the market is deprecated */
+        //判断该cToken是否被废弃
         if (isDeprecated(CToken(cTokenBorrowed))) {
             require(borrowBalance >= repayAmount, "Can not repay more than the total borrow");
         } else {
             /* The borrower must have shortfall in order to be liquidatable */
-            //借款人的资金是否健康
+            //借款人的资金是否健康  即：是否资不抵债 是否需要被清算
             (Error err, , uint shortfall) = getAccountLiquidityInternal(borrower);
             if (err != Error.NO_ERROR) {
                 return uint(err);
@@ -730,7 +731,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      */
     function getHypotheticalAccountLiquidityInternal(
         address account,
-        //需要借贷或取回的token
+        //需要借的或取回的token
         CToken cTokenModify,
         //需要取回的代币数量  即：compound将取款和借款都归结成借款
         uint redeemTokens,
@@ -746,6 +747,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             CToken asset = assets[i];
 
             // Read the balances and exchange rate from the cToken
+            //此时的借款数额borrowBalance是已经加上利息的
             (oErr, vars.cTokenBalance, vars.borrowBalance, vars.exchangeRateMantissa) = asset.getAccountSnapshot(account);
             if (oErr != 0) { // semi-opaque error code, we assume NO_ERROR == 0 is invariant between upgrades
                 return (Error.SNAPSHOT_ERROR, 0, 0);
@@ -761,11 +763,11 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             if (vars.oraclePriceMantissa == 0) {
                 return (Error.PRICE_ERROR, 0, 0);
             }
-            //预言机里当前资产的价格
+            //预言机里当前cToken的对应token的价格
             vars.oraclePrice = Exp({mantissa: vars.oraclePriceMantissa});
 
             // Pre-compute a conversion factor from tokens -> ether (normalized price value)
-            //就算出用户的一个cToken能值多少ether
+            //就算出用户的cToken价格
             vars.tokensToDenom = mul_(mul_(vars.collateralFactor, vars.exchangeRate), vars.oraclePrice);
 
             // sumCollateral += tokensToDenom * cTokenBalance
@@ -773,20 +775,20 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             vars.sumCollateral = mul_ScalarTruncateAddUInt(vars.tokensToDenom, vars.cTokenBalance, vars.sumCollateral);
 
             // sumBorrowPlusEffects += oraclePrice * borrowBalance
-            //总的借款值多少个ether
+            //总的借款额度
             vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.oraclePrice, vars.borrowBalance, vars.sumBorrowPlusEffects);
 
             // Calculate effects of interacting with cTokenModify
-            //算上此次借款数量
+            //这次借款的token   //cTokenModify需要借的或取回的token
             if (asset == cTokenModify) {
                 // redeem effect
                 // sumBorrowPlusEffects += tokensToDenom * redeemTokens
-                //需要取出的token（redeemTokens）也算到贷款里面     redeemTokens = 0；
+                //需要取出的token（redeemTokens）也算到贷款里面     借款的时候redeemTokens = 0  取款的时候才有值；
                 vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.tokensToDenom, redeemTokens, vars.sumBorrowPlusEffects);
 
                 // borrow effect
                 // sumBorrowPlusEffects += oraclePrice * borrowAmount
-                //加上此次借款的数额
+                //加上此次借款的数额    取款的时候borrowAmount = 0  借款的时候才有值；
                 vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.oraclePrice, borrowAmount, vars.sumBorrowPlusEffects);
             }
         }
@@ -797,7 +799,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             //可以贷多少款
             return (Error.NO_ERROR, vars.sumCollateral - vars.sumBorrowPlusEffects, 0);
         } else {
-            //vars.sumBorrowPlusEffects - vars.sumCollateral为欠的钱
+            //vars.sumBorrowPlusEffects - vars.sumCollateral为欠的钱  需要被清算的金额
             return (Error.NO_ERROR, 0, vars.sumBorrowPlusEffects - vars.sumCollateral);
         }
     }
@@ -810,20 +812,29 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      * @param actualRepayAmount The amount of cTokenBorrowed underlying to convert into cTokenCollateral tokens
      * @return (errorCode, number of cTokenCollateral tokens to be seized in a liquidation)
      */
+     //计算清算人帮借款人偿还得token值多少个借款人抵押得cToken
      //清算折扣 即：清算人获得的抵押品的数量 = 清算人偿还的数量  *  （（借款人借的token的价格 * 激励的百分比） / 抵押品的价格）   价格都是ether价格
     function liquidateCalculateSeizeTokens(address cTokenBorrowed, address cTokenCollateral, uint actualRepayAmount) override external view returns (uint, uint) {
         /* Read oracle prices for borrowed and collateral markets */
         //通过预言机获取当前借的token得价格
         uint priceBorrowedMantissa = oracle.getUnderlyingPrice(CToken(cTokenBorrowed));
-        //通过预言机获取当前借款人得抵押品得价格
+        //通过预言机获取当前借的得抵押cToken对应的token的价格
         uint priceCollateralMantissa = oracle.getUnderlyingPrice(CToken(cTokenCollateral));
         if (priceBorrowedMantissa == 0 || priceCollateralMantissa == 0) {
             return (uint(Error.PRICE_ERROR), 0);
         }
 
+        //以下公式的意义：将清算者发送过来的token的数额乘以激励比例 通过两种token的价格比换算成借款人抵押的token的数额 最终在通过汇率换算成token对应的cToken的数额
+
+        //例如：借款人：存USDT 获得cUSDT 然后借了USDC 
+        //      清算人：帮忙还USDC-----需要计算清算人最终可以获得多少个借款人抵押的cUSDT
+        
+
         /*
          * Get the exchange rate and calculate the number of collateral tokens to seize:
+         // seizeAmount: token的数量
          *  seizeAmount = actualRepayAmount * liquidationIncentive * priceBorrowed / priceCollateral
+         //seizeTokens：cToken的数量
          *  seizeTokens = seizeAmount / exchangeRate
          *   = actualRepayAmount * (liquidationIncentive * priceBorrowed) / (priceCollateral * exchangeRate)
          */
@@ -836,12 +847,13 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         //行号840 ~ 845 都是上面注释的公式的执行
         //liquidationIncentiveMantissa:帮别人偿还债务时候 多获得的8%的cToken作为奖励  即：1.08
-        //借的token得激励后得价格
+        //借的token激励后得价格
         numerator = mul_(Exp({mantissa: liquidationIncentiveMantissa}), Exp({mantissa: priceBorrowedMantissa}));
-        //抵押品cToken => Token的价格
+        //抵押品cToken的价格
         denominator = mul_(Exp({mantissa: priceCollateralMantissa}), Exp({mantissa: exchangeRateMantissa}));
         ratio = div_(numerator, denominator);
-
+        
+        //seizeTokens：清算中需要将cTokenCollateral的数量发送给清算者
         seizeTokens = mul_ScalarTruncate(ratio, actualRepayAmount);
 
         return (uint(Error.NO_ERROR), seizeTokens);

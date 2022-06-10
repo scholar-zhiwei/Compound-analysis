@@ -204,6 +204,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @notice Returns the current per-block borrow interest rate for this cToken
      * @return The borrow interest rate per block, scaled by 1e18
      */
+     //每个区块的贷款利率
     function borrowRatePerBlock() override external view returns (uint) {
         return interestRateModel.getBorrowRate(getCashPrior(), totalBorrows, totalReserves);
     }
@@ -212,6 +213,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @notice Returns the current per-block supply interest rate for this cToken
      * @return The supply interest rate per block, scaled by 1e18
      */
+     //每个区块的存款利率
     function supplyRatePerBlock() override external view returns (uint) {
         return interestRateModel.getSupplyRate(getCashPrior(), totalBorrows, totalReserves, reserveFactorMantissa);
     }
@@ -220,6 +222,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @notice Returns the current total borrows plus accrued interest
      * @return The total borrows with interest
      */
+     //总共的借款数量
     function totalBorrowsCurrent() override external nonReentrant returns (uint) {
         accrueInterest();
         return totalBorrows;
@@ -230,6 +233,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param account The address whose balance should be calculated after updating borrowIndex
      * @return The calculated balance
      */
+     //该账户的当前区块的借款金额（加上利息）
     function borrowBalanceCurrent(address account) override external nonReentrant returns (uint) {
         accrueInterest();
         return borrowBalanceStored(account);
@@ -240,6 +244,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param account The address whose balance should be calculated
      * @return The calculated balance
      */
+     //借款金额（加上利息）
     function borrowBalanceStored(address account) override public view returns (uint) {
         return borrowBalanceStoredInternal(account);
     }
@@ -274,6 +279,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @notice Accrue interest then return the up-to-date exchange rate
      * @return Calculated exchange rate scaled by 1e18
      */
+     //当前的汇率
     function exchangeRateCurrent() override public nonReentrant returns (uint) {
         accrueInterest();
         return exchangeRateStored();
@@ -284,6 +290,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @dev This function does not accrue interest before calculating the exchange rate
      * @return Calculated exchange rate scaled by 1e18
      */
+     //上次存储的汇率
     function exchangeRateStored() override public view returns (uint) {
         return exchangeRateStoredInternal();
     }
@@ -319,6 +326,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @notice Get cash balance of this cToken in the underlying asset
      * @return The quantity of underlying asset owned by this contract
      */
+     //当前cToken的余额
     function getCash() override external view returns (uint) {
         return getCashPrior();
     }
@@ -328,14 +336,14 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @dev This calculates interest accrued from the last checkpointed block
      *   up to the current block and writes new checkpoint to storage.
      */
-     //更新借款总额  总利息 借款指数  储备金
+     //更新借款总额  总利息 贷款指数  储备金
     function accrueInterest() virtual override public returns (uint) {
         /* Remember the initial block number */
         uint currentBlockNumber = getBlockNumber();
         uint accrualBlockNumberPrior = accrualBlockNumber;
 
         /* Short-circuit accumulating 0 interest */
-        //是否更新为最新的区块
+        //验证是否更新为最新的区块
         if (accrualBlockNumberPrior == currentBlockNumber) {
             return NO_ERROR;
         }
@@ -347,7 +355,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         uint borrowsPrior = totalBorrows;
         //总储备金
         uint reservesPrior = totalReserves;
-        //借款指数
+        //贷款指数
         uint borrowIndexPrior = borrowIndex;
 
         /* Calculate the current borrow interest rate */
@@ -375,7 +383,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         uint totalBorrowsNew = interestAccumulated + borrowsPrior;
         //总利息的一部分算入储备金
         uint totalReservesNew = mul_ScalarTruncateAddUInt(Exp({mantissa: reserveFactorMantissa}), interestAccumulated, reservesPrior);
-        //累加贷款指数    borrowIndexNew => indexB
+        //累加贷款指数    borrowIndexNew => indexB   y = 1 + x * t
         uint borrowIndexNew = mul_ScalarTruncateAddUInt(simpleInterestFactor, borrowIndexPrior, borrowIndexPrior);
 
         /////////////////////////
@@ -444,7 +452,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          *  in case of a fee. On success, the cToken holds an additional `actualMintAmount`
          *  of cash.
          */
-         //实际铸造的数量    mintAmount为用户存储的token的数量
+         //获取实际存储token的数量    mintAmount为用户存储的token的数量
         uint actualMintAmount = doTransferIn(minter, mintAmount);
 
         /*
@@ -646,7 +654,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          *  On success, the cToken borrowAmount less of cash.
          *  doTransferOut reverts if anything goes wrong, since we can't be sure if side effects occurred.
          */
-         //将借款请求指定的 underlying 资产 borrowAmount 发给借款方
+         //将借款请求指定的 underlying token发送 borrowAmount 数量给借款方
         doTransferOut(borrower, borrowAmount);
 
         /* We emit a Borrow event */
@@ -669,7 +677,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param borrower the account with the debt being payed off
      * @param repayAmount The amount to repay, or -1 for the full outstanding amount
      */
-     //清算人帮借款人还款
+     //调用者帮借款人还款----不是清算
     function repayBorrowBehalfInternal(address borrower, uint repayAmount) internal nonReentrant {
         accrueInterest();
         // repayBorrowFresh emits repay-borrow-specific logs on errors, so we don't need to
@@ -696,7 +704,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         }
 
         /* We fetch the amount the borrower owes, with accumulated interest */
-        //得到当前最新借款指数下用户的借款总额
+        //得到当前最新借款指数下用户的借款总额----accountBorrowsPrev = 借款数 * 借款利率
         uint accountBorrowsPrev = borrowBalanceStoredInternal(borrower);
 
         /* If repayAmount == -1, repayAmount = accountBorrows */
@@ -750,6 +758,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param repayAmount The amount of the underlying borrowed asset to repay
      */
      //清算  帮borrower偿还repayAmount的数量  以某种抵押cToken给清算者
+     //repayAmount：token的数额
     function liquidateBorrowInternal(address borrower, uint repayAmount, CTokenInterface cTokenCollateral) internal nonReentrant {
         //更新储备金、借款指数、借款数、当前区块数
         accrueInterest();
@@ -772,10 +781,11 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param cTokenCollateral The market in which to seize collateral from the borrower
      * @param repayAmount The amount of the underlying borrowed asset to repay
      */
-     //清算人清算借款人借款,扣押的抵押品转移给清算人。 
+     //清算借款人的借款,扣押的抵押品转移给清算人。
+     //repayAmount：token的数额 
     function liquidateBorrowFresh(address liquidator, address borrower, uint repayAmount, CTokenInterface cTokenCollateral) internal {
         /* Fail if liquidate not allowed */
-        //检查清算是否允许发生，如：检查清算金额是否大于借款人金额得百分之五十等
+        //检查清算是否允许发生，如：检查清算金额是否小于借款人金额得百分之五十等
         uint allowed = comptroller.liquidateBorrowAllowed(address(this), address(cTokenCollateral), liquidator, borrower, repayAmount);
         if (allowed != 0) {
             revert LiquidateComptrollerRejection(allowed);
@@ -807,7 +817,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         }
 
         /* Fail if repayBorrow fails */
-        //获取真正被清算得金额
+        //清算人帮借款人偿还借款
         uint actualRepayAmount = repayBorrowFresh(liquidator, borrower, repayAmount);
 
         /////////////////////////
@@ -815,20 +825,23 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         // (No safe failures beyond this point)
 
         /* We calculate the number of collateral tokens that will be seized */
-        //计算将被没收的抵押品代币的数量---借款人需要给清算人代币得数量seizeTokens
+        //计算清算人帮借款人偿还得token值多少个借款人抵押得cToken
+        //借款人需要给清算人代币得数量seizeTokens--cToken数量
         (uint amountSeizeError, uint seizeTokens) = comptroller.liquidateCalculateSeizeTokens(address(this), address(cTokenCollateral), actualRepayAmount);
         require(amountSeizeError == NO_ERROR, "LIQUIDATE_COMPTROLLER_CALCULATE_AMOUNT_SEIZE_FAILED");
 
         /* Revert if borrower collateral token balance < seizeTokens */
-        //确保借款人得cToken抵押品余额大于需要发送给清算人得金额
+        //确保该cToken合约余额大于需要发送给清算人得金额
         require(cTokenCollateral.balanceOf(borrower) >= seizeTokens, "LIQUIDATE_SEIZE_TOO_MUCH");
 
         // If this is also the collateral, run seizeInternal to avoid re-entrancy, otherwise make an external call
-        //抵押品 == 借款人所借得token
         if (address(cTokenCollateral) == address(this)) {
+            //清算者帮借款人还得token == 借款人抵押得token
             //将抵押的代币发送给清算人
             seizeInternal(address(this), liquidator, borrower, seizeTokens);
         } else {
+            //清算者帮借款人还得token != 借款人抵押得token (正常情况下是此情况)
+            //将抵押的代币发送给清算人
             require(cTokenCollateral.seize(liquidator, borrower, seizeTokens) == NO_ERROR, "token seizure failed");
         }
 
@@ -879,9 +892,13 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          *  borrowerTokensNew = accountTokens[borrower] - seizeTokens
          *  liquidatorTokensNew = accountTokens[liquidator] + seizeTokens
          */
+         //protocolSeizeShareMantissa储备金比例2.8%
+         //储备金数量（cToken）
         uint protocolSeizeTokens = mul_(seizeTokens, Exp({mantissa: protocolSeizeShareMantissa}));
+        //清算者获得的cToken抵押品的数量
         uint liquidatorSeizeTokens = seizeTokens - protocolSeizeTokens;
         Exp memory exchangeRate = Exp({mantissa: exchangeRateStoredInternal()});
+        //储备金的数量（token）
         uint protocolSeizeAmount = mul_ScalarTruncate(exchangeRate, protocolSeizeTokens);
         uint totalReservesNew = totalReserves + protocolSeizeAmount;
 
@@ -891,7 +908,9 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         // (No safe failures beyond this point)
 
         /* We write the calculated values into storage */
+        //更新储备金的数量
         totalReserves = totalReservesNew;
+        //储备金的增加  代价是cToken的减少
         totalSupply = totalSupply - protocolSeizeTokens;
         accountTokens[borrower] = accountTokens[borrower] - seizeTokens;
         accountTokens[liquidator] = accountTokens[liquidator] + liquidatorSeizeTokens;

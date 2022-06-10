@@ -26,6 +26,7 @@ contract WhitePaperInterestRateModel is InterestRateModel {
     /**
      * @notice The base interest rate which is the y-intercept when utilization rate is 0
      */
+    //基础的贷款利率
     uint public baseRatePerBlock;
 
     /**
@@ -33,6 +34,7 @@ contract WhitePaperInterestRateModel is InterestRateModel {
      * @param baseRatePerYear The approximate target base APR, as a mantissa (scaled by BASE)
      * @param multiplierPerYear The rate of increase in interest rate wrt utilization (scaled by BASE)
      */
+     //贷款利率曲线的斜率k--multiplierPerYear  常量b--baseRatePerYear   
     constructor(uint baseRatePerYear, uint multiplierPerYear) public {
         baseRatePerBlock = baseRatePerYear / blocksPerYear;
         multiplierPerBlock = multiplierPerYear / blocksPerYear;
@@ -64,6 +66,7 @@ contract WhitePaperInterestRateModel is InterestRateModel {
      * @return The borrow rate percentage per block as a mantissa (scaled by BASE)
      */
     function getBorrowRate(uint cash, uint borrows, uint reserves) override public view returns (uint) {
+        //获取资金利用率
         uint ur = utilizationRate(cash, borrows, reserves);
         return (ur * multiplierPerBlock / BASE) + baseRatePerBlock;
     }
